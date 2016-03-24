@@ -2,7 +2,7 @@
 
 CONTAINERREPO="azlinux-libguestfs"
 CONTAINERTAG="0.01"
-CONTAINERNAME="$CONTAINERREPO" + "$CONTAINERTAG"
+CONTAINERNAME="$CONTAINERREPO:$CONTAINERTAG"
 
 CONTAINERID=$(docker build -t "$CONTAINERNAME" . | grep "Successfully built" | awk '{print $3}')
 
