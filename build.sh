@@ -1,6 +1,6 @@
 #!/bin/bash -x
 
-CONTAINERREPO="azlinux-libguestfs"
+CONTAINERREPO="azlinux/libguestfs"
 CONTAINERTAG="0.01"
 CONTAINERNAME="$CONTAINERREPO:$CONTAINERTAG"
 

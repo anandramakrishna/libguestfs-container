@@ -19,3 +19,8 @@ WORKDIR /libguestfs
 RUN ./autogen.sh
 RUN make; rm po-docs/podfiles; make -C po-docs update-po
 RUN make
+ADD src/* /api/
+EXPOSE 8080
+CMD /api/index.py
+
+
