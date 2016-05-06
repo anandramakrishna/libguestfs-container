@@ -7,19 +7,20 @@ import shutil
 import sys
 import os
 import time
+import socketserver
 
 PORT = 8080
-OUTPUTDIRNAME = 'output'
+OUTPUTDIRNAME = '/output'
 
 class GuestFishWrapper():
-    def execute(self, storageUrl, outputFileName):
+    def execute(self, storageUrl, outputDirName):
         # Invoke guestfish with the disk
         # list of commands are in cmds.gf and output files are put 
         # into a directory called output
         print(storageUrl)
 
         timeStr = str(time.time())
-        requestDir = 'output/' + timeStr
+        requestDir = outputDirName + os.sep + timeStr
         varDir = requestDir + '/var'
         os.makedirs(varDir)
         
@@ -27,8 +28,11 @@ class GuestFishWrapper():
         print(args)
 
         subprocess.call(args)
-        shutil.make_archive(outputFileName, 'zip', requestDir)
-        return outputFileName + '.zip'
+        return shutil.make_archive(requestDir, 'zip', requestDir)
+
+class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    pass
+
 
         
 
@@ -47,21 +51,27 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
 
             gfWrapper = GuestFishWrapper()
             outputFileName = gfWrapper.execute(storageUrl, OUTPUTDIRNAME)
+            print('Guest zipped up ' + outputFileName)
 
             #Now go write this file in the response body
             self.send_response(200)
             self.send_header('Content-Type', 'application/zip')
             statinfo = os.stat(outputFileName)
             self.send_header('Content-Length', statinfo.st_size)
+            self.send_header('Content-Disposition', os.path.basename(outputFileName))
             self.end_headers()
+            print('HTTP Headers done.')
 
             with open(outputFileName, 'rb') as outputFileObj:
                 buf = None
+                print('Opened file for read')
                 while (True):
+                    print('Reading...')
                     buf = outputFileObj.read(4096)
-                    if (buf == None):
+                    if (not buf):
                         break
                     self.wfile.write(buf)
+            print('Finished request processing')
         except (IndexError, FileNotFoundError) as ex:
             self.send_response(404, 'Not Found')
             self.end_headers()
@@ -69,7 +79,8 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(500)
             self.end_headers()
         finally:
-            self.wfile.flush()        
+            self.wfile.flush()
+
         
 
 if __name__ == '__main__':
@@ -79,9 +90,16 @@ if __name__ == '__main__':
         print("Created " + outputFileName);
     else:
         server_address = ('', PORT)
-        server = http.server.HTTPServer(server_address, GuestFishHttpHandler)
+        server = ThreadingServer(server_address, GuestFishHttpHandler)
         print("Serving at port", PORT)
-        server.serve_forever()
+
+        try:
+            while (True):
+                sys.stdout.flush()
+                server.handle_request()
+        except KeyboardInterrupt:
+            print("Done")
+
 
 
 
