@@ -8,26 +8,57 @@ import sys
 import os
 import time
 import socketserver
+import logging
 
 PORT = 8080
 OUTPUTDIRNAME = '/output'
+
+logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(asctime)s: %(message)s')
 
 class GuestFishWrapper():
     def execute(self, storageUrl, outputDirName):
         # Invoke guestfish with the disk
         # list of commands are in cmds.gf and output files are put 
         # into a directory called output
-        print(storageUrl)
+        logging.info(storageUrl)
 
         timeStr = str(time.time())
         requestDir = outputDirName + os.sep + timeStr
         varDir = requestDir + '/var'
         os.makedirs(varDir)
         
-        args = ['/libguestfs/run', 'guestfish', '-a', storageUrl, '--ro', 'launch', ':', 'mount', '/dev/sda1', '/', ':', 'copy-out', '/var/log', varDir]
-        print(args)
+        args = [
+            '/libguestfs/run', 'guestfish', '-a', storageUrl, '--ro', 
+            'echo', 'Launching guestfish...', ':',
+            'launch', ':', 
+            'echo', 'Mounting sda1', ':',
+            'mount', '/dev/sda1', '/', ':', 
+            'echo', 'Copying waagent logs', ':',
+            'glob', 'copy-out', '/var/log/waagent*', varDir, ':',
+            'echo', 'Copying syslog', ':',
+            'glob', 'copy-out', '/var/log/syslog*', varDir, ':',
+            'echo', 'Copying rsyslog', ':',
+            'glob', 'copy-out', '/var/log/rsyslog*', varDir, ':',
+            'echo', 'Copying kern logs', ':',
+            'glob', 'copy-out', '/var/log/kern*', varDir, ':',
+            'echo', 'Copying dmesg logs', ':',
+            'glob', 'copy-out', '/var/log/dmesg*', varDir, ':',
+            'echo', 'Copying dpkg logs', ':',
+            'glob', 'copy-out', '/var/log/dpkg*', varDir, ':',
+            'echo', 'Copying cloud-init logs', ':',
+            'glob', 'copy-out', '/var/log/cloud-init*', varDir, ':',
+            'echo', 'Copying boot logs', ':',
+            'glob', 'copy-out', '/var/log/boot*', varDir, ':',
+            'echo', 'Copying auth logs', ':',
+            'glob', 'copy-out', '/var/log/auth*', varDir, ':',
+            'echo', 'All copying done!']
+        logging.info(args)
 
+        logging.info('Calling guestfish')
         subprocess.call(args)
+        logging.info('Guestfish done!')
+
+        logging.info('Making archive')
         return shutil.make_archive(requestDir, 'zip', requestDir)
 
 class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
@@ -51,7 +82,7 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
 
             gfWrapper = GuestFishWrapper()
             outputFileName = gfWrapper.execute(storageUrl, OUTPUTDIRNAME)
-            print('Guest zipped up ' + outputFileName)
+            logging.info('Guest zipped up ' + outputFileName)
 
             #Now go write this file in the response body
             self.send_response(200)
@@ -60,22 +91,24 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Length', statinfo.st_size)
             self.send_header('Content-Disposition', os.path.basename(outputFileName))
             self.end_headers()
-            print('HTTP Headers done.')
+            logging.info('HTTP Headers done.')
 
             with open(outputFileName, 'rb') as outputFileObj:
                 buf = None
-                print('Opened file for read')
+                logging.info('Opened file for read')
                 while (True):
-                    print('Reading...')
+                    logging.info('Reading...')
                     buf = outputFileObj.read(4096)
                     if (not buf):
                         break
                     self.wfile.write(buf)
-            print('Finished request processing')
+            logging.info('Finished request processing')
         except (IndexError, FileNotFoundError) as ex:
+            logging.exception('Caught IndexError or FileNotFound error')
             self.send_response(404, 'Not Found')
             self.end_headers()
         except:
+            logging.exception('Caught exception' + str(ex))
             self.send_response(500)
             self.end_headers()
         finally:
