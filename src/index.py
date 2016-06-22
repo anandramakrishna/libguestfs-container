@@ -16,46 +16,153 @@ OUTPUTDIRNAME = '/output'
 logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(asctime)s: %(message)s')
 
 class GuestFishWrapper():
+    environment = None
+
+    def buildGFArgs(self, args):
+        retArgs = ['/libguestfs/run', 'guestfish', '--remote']
+        retArgs.extend(args)
+        logging.info(retArgs)
+        return retArgs
+
+    def callGF(self, echoStr, commands, continueOnError=False):
+        try:
+            logging.info(echoStr)
+            return subprocess.check_output(
+                self.buildGFArgs(commands),
+                env=self.environment,
+                stderr=subprocess.STDOUT).decode('utf-8')
+        except subprocess.CalledProcessError as e:
+            logging.warning('Failed ' + echoStr)
+            if continueOnError == False:
+                raise(e)
+            logging.info('Continuing...')
+        
+    def validate(self, output):
+        logging.info('Output = %s', output)
+        if output.find('libguestfs: error') == -1:
+            return True
+        return False
+
     def execute(self, storageUrl, outputDirName):
-        # Invoke guestfish with the disk
-        # list of commands are in cmds.gf and output files are put 
-        # into a directory called output
         logging.info(storageUrl)
 
         timeStr = str(time.time())
         requestDir = outputDirName + os.sep + timeStr
-        varDir = requestDir + '/var'
-        os.makedirs(varDir)
+        varlogDir = requestDir + os.sep + 'var' + os.sep + 'log'
+        os.makedirs(varlogDir)
         
+        # Run guestfish in remote mode and then send it a command
+        # at a time since the programming environment inside guestfish
+        # is very limited (no variables, etc.)
+
         args = [
-            '/libguestfs/run', 'guestfish', '-a', storageUrl, '--ro', 
-            'echo', 'Launching guestfish...', ':',
-            'launch', ':', 
-            'echo', 'Mounting sda1', ':',
-            'mount', '/dev/sda1', '/', ':', 
-            'echo', 'Copying waagent logs', ':',
-            'glob', 'copy-out', '/var/log/waagent*', varDir, ':',
-            'echo', 'Copying syslog', ':',
-            'glob', 'copy-out', '/var/log/syslog*', varDir, ':',
-            'echo', 'Copying rsyslog', ':',
-            'glob', 'copy-out', '/var/log/rsyslog*', varDir, ':',
-            'echo', 'Copying kern logs', ':',
-            'glob', 'copy-out', '/var/log/kern*', varDir, ':',
-            'echo', 'Copying dmesg logs', ':',
-            'glob', 'copy-out', '/var/log/dmesg*', varDir, ':',
-            'echo', 'Copying dpkg logs', ':',
-            'glob', 'copy-out', '/var/log/dpkg*', varDir, ':',
-            'echo', 'Copying cloud-init logs', ':',
-            'glob', 'copy-out', '/var/log/cloud-init*', varDir, ':',
-            'echo', 'Copying boot logs', ':',
-            'glob', 'copy-out', '/var/log/boot*', varDir, ':',
-            'echo', 'Copying auth logs', ':',
-            'glob', 'copy-out', '/var/log/auth*', varDir, ':',
-            'echo', 'All copying done!']
+            '/libguestfs/run', 'guestfish', '--listen', 
+            '-a', storageUrl, '--ro' ]
+
+
+
         logging.info(args)
 
+        # Guestfish server mode returns a string of the form
+        #   GUESTFISH_PID=pid; export GUESTFISH_PID
+        # We need to parse this and extract out the GUESTFISH_PID 
+        # environment variable and inserting it into the subsequent env
         logging.info('Calling guestfish')
-        subprocess.call(args)
+        self.environment = os.environ.copy()
+        output = subprocess.check_output(
+            args, env=self.environment).decode('utf-8')
+        logging.info(output)
+        pidlines = output.split(';')
+        if (len(pidlines) < 0):
+            raise Exception('Did not start guestfish correctly')
+        pidlines = pidlines[0].split('=')
+        if (len(pidlines) < 2):
+            raise Exception('Cannot find pidline from guestfish')
+        if (pidlines[0] != 'GUESTFISH_PID'):
+            raise Exception('Cannot find GUESTFISH_PID')
+        guestfishpid = int(pidlines[1])
+        self.environment['GUESTFISH_PID'] = str(guestfishpid)
+        logging.info('GUESTFISH_PID = %d', guestfishpid)
+
+        # Enumerate file systems
+        # Then try mounting them and looking for logs
+        # Exit out once any logs are found
+
+        self.callGF('Launching', ['launch'])
+        output = self.callGF('Listing filesystems', ['list-filesystems'])
+
+        # output of list-filesystems is of the form:
+        #   /dev/sda1: ext4
+        #   /dev/sdb1: ext4 
+        #   ...
+
+        for line in output.splitlines():
+            idx = line.find(':')
+            if idx == -1:
+                continue
+            device = line[:idx]
+            logging.info('Found device at path: %s', device)
+
+            try:
+                self.callGF('Unmounting root volume', 
+                    ['--', '-umount', '/'], True)
+            except subprocess.CalledProcessError:
+                pass
+
+            failed = False
+            try:
+                if self.validate(self.callGF('Trying to mounting %s' %(device), 
+                        ['--', '-mount', device, '/'])) != True:
+                    failed = True
+
+            except subprocess.CalledProcessError as e:
+                failed = True
+
+            if failed == True:
+                # Couldn't mount this device, so just continue to next device
+                logging.info('Could not mount device %s', device)
+                continue
+
+            # Look for existence of /var/log
+            failed = False
+            try:
+                if self.validate(self.callGF(
+                        'Looking for existence of /var/log', 
+                        ['--', '-ls', '/var/log'])) != True:
+                    failed = True
+            except subprocess.CalledProcessError as e:
+                failed = True
+
+            if failed == True:
+                logging.info('/var/log does not exist on %s', device)
+                continue
+
+            self.callGF('Copying waagent logs', 
+                ['--','-glob','copy-out', '/var/log/waagent*', varlogDir], True)
+            self.callGF('Copying syslog files',
+                ['--','-glob', 'copy-out', '/var/log/syslog*', varlogDir], True)
+            self.callGF('Copying rsyslog files',
+                ['--','-glob', 'copy-out','/var/log/rsyslog*', varlogDir], True)
+            self.callGF('Copying messages',
+                ['--','-glob','copy-out','/var/log/messages*', varlogDir], True)
+            self.callGF('Copying kern logs',
+                ['--', '-glob', 'copy-out', '/var/log/kern*', varlogDir], True)
+            self.callGF('Copying dmesg logs',
+                ['--', '-glob', 'copy-out', '/var/log/dmesg*', varlogDir], True)
+            self.callGF('Copying dpkg logs',
+                ['--', '-glob', 'copy-out', '/var/log/dpkg*', varlogDir], True)
+            self.callGF('Copying yum logs',
+                ['--', '-glob', 'copy-out', '/var/log/yum*', varlogDir], True)
+            self.callGF('Copying cloud-init logs',
+                ['--','-glob','copy-out','/var/log/cloud-init*',varlogDir], True)
+            self.callGF('Copying boot logs',
+                ['--','-glob', 'copy-out', '/var/log/boot*', varlogDir], True)
+            self.callGF('Copying auth logs',
+                ['--', '-glob', 'copy-out', '/var/log/auth*', varlogDir], True)
+            self.callGF('Copying secure logs',
+                ['--','-glob', 'copy-out', '/var/log/secure*', varlogDir], True)
+            
+        self.callGF('Exiting guestfish', ['--', '-exit'])
         logging.info('Guestfish done!')
 
         logging.info('Making archive')
@@ -107,7 +214,7 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
             logging.exception('Caught IndexError or FileNotFound error')
             self.send_response(404, 'Not Found')
             self.end_headers()
-        except:
+        except Exception as ex:
             logging.exception('Caught exception' + str(ex))
             self.send_response(500)
             self.end_headers()
