@@ -9,6 +9,7 @@ import os
 import time
 import socketserver
 import logging
+import io
 
 PORT = 8080
 OUTPUTDIRNAME = '/output'
@@ -27,19 +28,26 @@ class GuestFishWrapper():
     def callGF(self, echoStr, commands, continueOnError=False):
         try:
             logging.info(echoStr)
-            return subprocess.check_output(
+            proc = subprocess.Popen(
                 self.buildGFArgs(commands),
-                env=self.environment,
-                stderr=subprocess.STDOUT).decode('utf-8')
+                env = self.environment,
+                stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                universal_newlines=True)
+            return proc.communicate()
         except subprocess.CalledProcessError as e:
             logging.warning('Failed ' + echoStr)
             if continueOnError == False:
                 raise(e)
             logging.info('Continuing...')
         
-    def validate(self, output):
+    def validateGF(self, echoStr, commands, continueOnError=False):
+        output, error = self.callGF(echoStr, commands, continueOnError)
         logging.info('Output = %s', output)
-        if output.find('libguestfs: error') == -1:
+        logging.info('Error = %s', error)
+
+        if (error.find('libguestfs: error') == -1 or
+                output.find('libguestfs:error') == -1):
             return True
         return False
 
@@ -58,9 +66,6 @@ class GuestFishWrapper():
         args = [
             '/libguestfs/run', 'guestfish', '--listen', 
             '-a', storageUrl, '--ro' ]
-
-
-
         logging.info(args)
 
         # Guestfish server mode returns a string of the form
@@ -70,17 +75,14 @@ class GuestFishWrapper():
         logging.info('Calling guestfish')
         self.environment = os.environ.copy()
         output = subprocess.check_output(
-            args, env=self.environment).decode('utf-8')
+            args, env=self.environment, universal_newlines=True)
         logging.info(output)
-        pidlines = output.split(';')
-        if (len(pidlines) < 0):
-            raise Exception('Did not start guestfish correctly')
-        pidlines = pidlines[0].split('=')
-        if (len(pidlines) < 2):
-            raise Exception('Cannot find pidline from guestfish')
-        if (pidlines[0] != 'GUESTFISH_PID'):
+
+        try:
+            guestfishpid = int(output.split(';')[0].split('=')[1])
+        except Exception as e:
             raise Exception('Cannot find GUESTFISH_PID')
-        guestfishpid = int(pidlines[1])
+        
         self.environment['GUESTFISH_PID'] = str(guestfishpid)
         logging.info('GUESTFISH_PID = %d', guestfishpid)
 
@@ -89,7 +91,7 @@ class GuestFishWrapper():
         # Exit out once any logs are found
 
         self.callGF('Launching', ['launch'])
-        output = self.callGF('Listing filesystems', ['list-filesystems'])
+        output, error = self.callGF('Listing filesystems', ['list-filesystems'])
 
         # output of list-filesystems is of the form:
         #   /dev/sda1: ext4
@@ -111,10 +113,9 @@ class GuestFishWrapper():
 
             failed = False
             try:
-                if self.validate(self.callGF('Trying to mounting %s' %(device), 
-                        ['--', '-mount', device, '/'])) != True:
+                if self.validateGF('Trying to mounting %s' %(device), 
+                        ['--', '-mount', device, '/']) != True:
                     failed = True
-
             except subprocess.CalledProcessError as e:
                 failed = True
 
@@ -126,9 +127,9 @@ class GuestFishWrapper():
             # Look for existence of /var/log
             failed = False
             try:
-                if self.validate(self.callGF(
+                if self.validateGF(
                         'Looking for existence of /var/log', 
-                        ['--', '-ls', '/var/log'])) != True:
+                        ['--', '-ls', '/var/log']) != True:
                     failed = True
             except subprocess.CalledProcessError as e:
                 failed = True
@@ -192,12 +193,17 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
             logging.info('Guest zipped up ' + outputFileName)
 
             #Now go write this file in the response body
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/zip')
+            self.wfile.write(bytes('HTTP/1.1 200 OK\r\n', 'utf-8'))
+            self.wfile.write(bytes('Content-Type: application/zip\r\n','utf-8'))
+
             statinfo = os.stat(outputFileName)
-            self.send_header('Content-Length', statinfo.st_size)
-            self.send_header('Content-Disposition', os.path.basename(outputFileName))
-            self.end_headers()
+            self.wfile.write(bytes('Content-Length: {0}\r\n'.format(
+                str(statinfo.st_size)), 'utf-8'))
+            self.wfile.write(bytes(
+                'Content-Disposition: Attachment; filename={0}\r\n'.format(
+                os.path.basename(outputFileName)), 'utf-8'))
+            self.wfile.write(bytes('\r\n', 'utf-8'))
+            self.wfile.flush()
             logging.info('HTTP Headers done.')
 
             with open(outputFileName, 'rb') as outputFileObj:
