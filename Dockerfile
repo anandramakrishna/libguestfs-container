@@ -4,6 +4,7 @@ RUN apt-get update
 RUN apt-get --assume-yes install build-essential 
 RUN apt-get --assume-yes install autoconf
 RUN apt-get --assume-yes install git
+RUN apt-get --assume-yes install nginx
 RUN apt-get --assume-yes build-dep libguestfs  
 RUN apt-get --assume-yes install flex
 RUN apt-get --assume-yes install bison
@@ -19,8 +20,12 @@ WORKDIR /libguestfs
 RUN ./autogen.sh
 RUN make; rm po-docs/podfiles; make -C po-docs update-po
 RUN make
+RUN rm -v /etc/nginx/nginx.conf
+ADD nginx.conf /etc/nginx/
+RUN echo "daemon off;" >> /etc/nginx/nginx.conf
 ADD src/* /api/
-EXPOSE 8080
-CMD /api/index.py
+EXPOSE 80
+CMD service nginx start && /api/index.py
+
 
 
