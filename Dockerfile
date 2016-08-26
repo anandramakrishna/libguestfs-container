@@ -1,5 +1,6 @@
 FROM ubuntu:14.04
 MAINTAINER Anand Ramakrishna <anandram@microsoft.com>
+RUN echo "deb http://archive.ubuntu.com/ubuntu/ trusty main universe" >> /etc/apt/sources.list
 RUN apt-get update
 RUN apt-get --assume-yes install build-essential 
 RUN apt-get --assume-yes install autoconf
@@ -22,9 +23,8 @@ RUN make; rm po-docs/podfiles; make -C po-docs update-po
 RUN make
 RUN rm -v /etc/nginx/nginx.conf
 ADD nginx.conf /etc/nginx/
-RUN echo "daemon off;" >> /etc/nginx/nginx.conf
 ADD src/* /api/
-EXPOSE 80
+EXPOSE 8080
 CMD service nginx start && /api/index.py
 
 
