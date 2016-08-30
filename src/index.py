@@ -217,7 +217,7 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
                 logging.info('Opened file for read')
                 while (True):
                     logging.info('Reading...')
-                    buf = outputFileObj.read(4096)
+                    buf = outputFileObj.read(64 * 1024)
                     if (not buf):
                         break
                     self.wfile.write(buf)
