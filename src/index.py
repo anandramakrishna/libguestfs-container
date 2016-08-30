@@ -57,7 +57,9 @@ class GuestFishWrapper():
         timeStr = str(time.time())
         requestDir = outputDirName + os.sep + timeStr
         varlogDir = requestDir + os.sep + 'var' + os.sep + 'log'
+        etcDir = requestDir + os.sep + 'etc'
         os.makedirs(varlogDir)
+        os.makedirs(etcDir)
         
         # Run guestfish in remote mode and then send it a command
         # at a time since the programming environment inside guestfish
@@ -162,6 +164,12 @@ class GuestFishWrapper():
                 ['--', '-glob', 'copy-out', '/var/log/auth*', varlogDir], True)
             self.callGF('Copying secure logs',
                 ['--','-glob', 'copy-out', '/var/log/secure*', varlogDir], True)
+            self.callGF('Copying agent extension logs',
+                ['--','-glob', 'copy-out', '/var/log/azure', varlogDir], True)
+            self.callGF('Copying fstab',
+                ['--','-glob', 'copy-out', '/etc/fstab', etcDir], True)
+            self.callGF('Copying sshd_conf',
+                ['--','-glob', 'copy-out', '/etc/ssh/sshd_config', etcDir],True)
             
         self.callGF('Exiting guestfish', ['--', '-exit'])
         logging.info('Guestfish done!')
