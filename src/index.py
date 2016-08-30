@@ -164,8 +164,6 @@ class GuestFishWrapper():
                 ['--', '-glob', 'copy-out', '/var/log/auth*', varlogDir], True)
             self.callGF('Copying secure logs',
                 ['--','-glob', 'copy-out', '/var/log/secure*', varlogDir], True)
-            self.callGF('Copying agent extension logs',
-                ['--','-glob', 'copy-out', '/var/log/azure', varlogDir], True)
             self.callGF('Copying fstab',
                 ['--','-glob', 'copy-out', '/etc/fstab', etcDir], True)
             self.callGF('Copying sshd_conf',
