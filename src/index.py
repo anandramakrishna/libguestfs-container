@@ -11,6 +11,7 @@ import socketserver
 import logging
 import io
 
+IP_ADDRESS='127.0.0.1'
 PORT = 8081
 OUTPUTDIRNAME = '/output'
 
@@ -52,6 +53,7 @@ class GuestFishWrapper():
         return False
 
     def execute(self, storageUrl, outputDirName):
+        logging.info('Waking up');
         logging.info(storageUrl)
 
         timeStr = str(time.time())
@@ -242,7 +244,7 @@ if __name__ == '__main__':
         outputFileName = gf.execute(sys.argv[1], OUTPUTDIRNAME)
         print("Created " + outputFileName);
     else:
-        server_address = ('', PORT)
+        server_address = (IP_ADDRESS, PORT)
         server = ThreadingServer(server_address, GuestFishHttpHandler)
         print("Serving at port", PORT)
 
