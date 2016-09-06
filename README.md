@@ -1,7 +1,20 @@
-# libguestfs-container
-This is a Docker container for libguestfs.  It allows for interactive interaction with remote virtual machine disk images.  It is particularly useful for interacting with Microsoft Azure vhd images.
+This is a Docker container that wraps libguestfs and exposes a simple REST API around it.  The function of the API is as follows:
+* The REST API takes in parameters pointing to a VHD.  
+* The REST API is listening on container port 8080.  
+* It then automates the fetching and inspection of the VHD.  The assumption is that the URL is readable.
+* It extracts a specific set of log files from the VHD, looking across all partitions.  
+* Once it finds the log files, it exports the files out and then zips the files up.
+* The contents of the zip file are then written out as the response.
 
-    $ docker run -it gabrielhartmann/libguestfs
+To run the container do:
+    $ docker run [-it] -p 8080:8080 azlinux/libguestfs:0.01
+
+To send a request to the service do:
+    $ curl "http://<Service URL and port>/<Azure storage acct name>/<Azure storage path>"
+
+# libguestfs-container
+The Docker container for libguestfs allows for interactive interaction with remote virtual machine disk images.  It is particularly useful for interacting with Microsoft Azure vhd images.  From inside the container do:
+
     $ ./run virt-rescue --ro -a "<vhd URI>"
     …
     ------------------------------------------------------------
