@@ -190,6 +190,9 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
         try:
             urlObj = urllib.parse.urlparse(self.path)
             urlSplit = urlObj.path.split('/')
+            if not len(urlSplit) >= 3:
+                return
+
             storageAcctName = urlSplit[1]
             container_blob_name = urlSplit[2] + '/' + urlSplit[3]
             storageUrl = urllib.parse.urlunparse(('https', storageAcctName + '.blob.core.windows.net', container_blob_name, '', urlObj.query, None))        

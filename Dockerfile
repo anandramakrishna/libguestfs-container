@@ -1,30 +1,50 @@
+# This file creates a container that runs nginx and a libguestfs python web service
+# The libguestfs service provides a way to extract log files from a SAS uri of an
+# Azure blob as a zip archive.
+ 
 FROM ubuntu:14.04
 MAINTAINER Anand Ramakrishna <anandram@microsoft.com>
+
+# package dependencies
 RUN echo "deb http://archive.ubuntu.com/ubuntu/ trusty main universe" >> /etc/apt/sources.list
-RUN apt-get update
-RUN apt-get --assume-yes install build-essential 
-RUN apt-get --assume-yes install autoconf
-RUN apt-get --assume-yes install git
-RUN apt-get --assume-yes install nginx
-RUN apt-get --assume-yes build-dep libguestfs  
-RUN apt-get --assume-yes install flex
-RUN apt-get --assume-yes install bison
-RUN DEBIAN_FRONTEND=noninteractive apt-get --assume-yes install linux-image-generic
-RUN apt-get --assume-yes build-dep supermin  
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    build-essential \
+    autoconf \
+    git \
+    nginx \
+    flex \
+    bison \
+    linux-image-generic \
+ && DEBIAN_FRONTEND=noninteractive apt-get build-dep -y \
+    libguestfs \
+    supermin
+
+# supermin
+WORKDIR /
 RUN git clone https://github.com/libguestfs/supermin.git
-RUN git clone https://github.com/anandramakrishna/libguestfs.git
 WORKDIR /supermin
-RUN ./bootstrap
-RUN ./autogen.sh
-RUN make install
+RUN ./bootstrap \
+ && ./autogen.sh \
+ && make install
+
+# patched libguestfs
+WORKDIR /
+RUN git clone https://github.com/anandramakrishna/libguestfs.git
 WORKDIR /libguestfs
-RUN ./autogen.sh
-RUN make; rm po-docs/podfiles; make -C po-docs update-po
+RUN ./autogen.sh \
+ && make ; rm -f po-docs/podfiles; make -C po-docs update-po 
 RUN make
+
+# extractor service
 RUN rm -v /etc/nginx/nginx.conf
-ADD nginx.conf /etc/nginx/
-ADD src/* /api/
+COPY nginx.conf /etc/nginx/
+COPY src/* /api/
+
+# Expose port 8080 for nginx
 EXPOSE 8080
+
+# Start the nginx service
 CMD service nginx start && /api/index.py
 
 

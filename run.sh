@@ -1,0 +1,10 @@
+#!/bin/bash -x
+
+CONTAINERREPO="azlinux/libguestfs"
+CONTAINERTAG="0.01"
+CONTAINERNAME="$CONTAINERREPO:$CONTAINERTAG"
+SERVICENAME="InspectAzureDiskSvc"
+
+docker stop $SERVICENAME
+docker rm -f $SERVICENAME
+docker run -it -p 8080:8080 --name $SERVICENAME $CONTAINERNAME
