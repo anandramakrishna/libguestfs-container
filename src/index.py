@@ -237,7 +237,7 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
         finally:
             self.wfile.flush()
-            
+            shutil.rmtree(OUTPUTDIRNAME) 
 
         
 
