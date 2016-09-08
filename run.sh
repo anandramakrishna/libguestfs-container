@@ -3,6 +3,7 @@
 CONTAINERREPO="azlinux/libguestfs"
 CONTAINERTAG="0.01"
 CONTAINERNAME="$CONTAINERREPO:$CONTAINERTAG"
+CONTAINERHOSTNAME="logext-testagents.trafficmanager.net"
 SERVICENAME="InspectAzureDiskSvc"
 SERVICEVOLUMENAME="InspectAzureDiskSvcSSLVolume"
 SSL_PATH="$HOME/logext_ssl"
@@ -28,5 +29,5 @@ fi
 echo "Starting service..."
 docker create -v /etc/nginx/ssl --name $SERVICEVOLUMENAME ubuntu
 docker cp ~/logext_ssl/. $SERVICEVOLUMENAME:/etc/nginx/ssl/.
-docker run -it -p 8080:8080 --name $SERVICENAME --volumes-from $SERVICEVOLUMENAME $CONTAINERNAME
+docker run -h $CONTAINERHOSTNAME -it -p 8080:8080 --name $SERVICENAME --volumes-from $SERVICEVOLUMENAME $CONTAINERNAME
 echo "Done."
