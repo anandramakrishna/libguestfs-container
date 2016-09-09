@@ -175,7 +175,9 @@ class GuestFishWrapper():
         logging.info('Guestfish done!')
 
         logging.info('Making archive')
-        return shutil.make_archive(requestDir, 'zip', requestDir)
+        archiveName = shutil.make_archive(requestDir, 'zip', requestDir)
+        shutil.rmtree(requestDir);
+        return archiveName;
 
 class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     pass
@@ -237,7 +239,7 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
         finally:
             self.wfile.flush()
-            shutil.rmtree(OUTPUTDIRNAME) 
+            os.remove(outputFileName)            
 
         
 
