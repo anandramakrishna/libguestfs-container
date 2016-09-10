@@ -30,7 +30,7 @@ RUN ./bootstrap \
 
 # patched libguestfs
 WORKDIR /
-RUN git clone https://github.com/anandramakrishna/libguestfs.git
+RUN git clone https://github.com/amitchat/libguestfs.git
 WORKDIR /libguestfs
 RUN ./autogen.sh \
  && make ; rm -f po-docs/podfiles; make -C po-docs update-po 
