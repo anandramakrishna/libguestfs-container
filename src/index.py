@@ -15,10 +15,14 @@ IP_ADDRESS='127.0.0.1'
 PORT = 8081
 OUTPUTDIRNAME = '/output'
 
-logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(asctime)s: %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(asctime)s: %(thread)d : %(message)s')
 
-class GuestFishWrapper():
+class GuestFishWrapper:
     environment = None
+    httpRequestHandler = None
+
+    def __init__(self, handler):
+      self.httpRequestHandler = handler
 
     def buildGFArgs(self, args):
         retArgs = ['/libguestfs/run', 'guestfish', '--remote']
@@ -29,6 +33,9 @@ class GuestFishWrapper():
     def callGF(self, echoStr, commands, continueOnError=False):
         try:
             logging.info(echoStr)
+            self.httpRequestHandler.send_response_only(100)
+            self.httpRequestHandler.end_headers()
+
             proc = subprocess.Popen(
                 self.buildGFArgs(commands),
                 env = self.environment,
@@ -53,7 +60,6 @@ class GuestFishWrapper():
         return False
 
     def execute(self, storageUrl, outputDirName):
-        logging.info('Waking up');
         logging.info(storageUrl)
 
         timeStr = str(time.time())
@@ -133,7 +139,7 @@ class GuestFishWrapper():
             try:
                 if self.validateGF(
                         'Looking for existence of /var/log', 
-                        ['--', '-ls', '/var/log']) != True:
+                        ['--', '-ll', '/var/log']) != True:
                     failed = True
             except subprocess.CalledProcessError as e:
                 failed = True
@@ -181,8 +187,6 @@ class GuestFishWrapper():
 
 class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     pass
-
-
         
 
 class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
@@ -192,16 +196,20 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
         try:
             urlObj = urllib.parse.urlparse(self.path)
             urlSplit = urlObj.path.split('/')
-            if not len(urlSplit) >= 3:
+            if not len(urlSplit) >= 4:
                 return
 
-            storageAcctName = urlSplit[1]
-            container_blob_name = urlSplit[2] + '/' + urlSplit[3]
+            operationId = urlSplit[1]
+            storageAcctName = urlSplit[2]
+            container_blob_name = urlSplit[3] + '/' + urlSplit[4]
             storageUrl = urllib.parse.urlunparse(('https', storageAcctName + '.blob.core.windows.net', container_blob_name, '', urlObj.query, None))        
         
+            logging.info('Processing operation id# ' + operationId)
+            logging.info('URL: ' + self.path)
             self.send_response_only(100)
-
-            gfWrapper = GuestFishWrapper()
+            self.end_headers()
+ 
+            gfWrapper = GuestFishWrapper(self)
             outputFileName = gfWrapper.execute(storageUrl, OUTPUTDIRNAME)
             logging.info('Guest zipped up ' + outputFileName)
 
@@ -250,6 +258,7 @@ if __name__ == '__main__':
         print("Created " + outputFileName);
     else:
         server_address = (IP_ADDRESS, PORT)
+        GuestFishHttpHandler.protocol_version = "HTTP/1.1"
         server = ThreadingServer(server_address, GuestFishHttpHandler)
         print("Serving at port", PORT)
 
