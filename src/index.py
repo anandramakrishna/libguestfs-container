@@ -15,6 +15,9 @@ IP_ADDRESS='127.0.0.1'
 PORT = 8081
 OUTPUTDIRNAME = '/output'
 
+totalCount=0
+successCount=0
+
 logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(asctime)s: %(thread)d : %(message)s')
 
 class GuestFishWrapper:
@@ -109,17 +112,41 @@ class GuestFishWrapper:
             operationOutFile.write(output)
             operationOutFile.write("\r\n")
 
+            operationOutFile.write("Inspection Status:\r\n")
+            output, error = self.callGF('Inspecting', ['inspect-os'])
+            operationOutFile.write(output)
+            operationOutFile.write("\r\n")
             # output of list-filesystems is of the form:
             #   /dev/sda1: ext4
             #   /dev/sdb1: ext4 
             #   ...
 
             for line in output.splitlines():
-                idx = line.find(':')
-                if idx == -1:
-                    continue
-                device = line[:idx]
+                #idx = line.find(':')
+                #if idx == -1:
+                #    continue
+                device = line #[:idx]
                 logging.info('Found device at path: %s', device)
+
+                operationOutFile.write("Inspecting ")
+                operationOutFile.write(device)
+                
+                operationOutFile.write("\r\nType: ")
+                inspectOutput, inspectError = self.callGF('Get-Type', ['--', '-inspect-get-type', device], True)
+                operationOutFile.write(inspectOutput)
+ 
+                operationOutFile.write("Distribution: ")
+                inspectOutput, inspectError = self.callGF('Get-Distro', ['--', '-inspect-get-distro', device], True)
+                operationOutFile.write(inspectOutput)
+ 
+                operationOutFile.write("Product Name: ")
+                inspectOutput, inspectError = self.callGF('Get-ProductName', ['--', '-inspect-get-product-name', device], True)
+                operationOutFile.write(inspectOutput)
+        
+                operationOutFile.write("Mount Points: \r\n")
+                inspectOutput, inspectError = self.callGF('Get-Mountpoints', ['--', '-inspect-get-mountpoints', device], True)
+                operationOutFile.write(inspectOutput)
+                operationOutFile.write("\r\n")
 
                 try:
                     self.callGF('Unmounting root volume', 
@@ -130,7 +157,7 @@ class GuestFishWrapper:
                 failed = False
                 try:
                     completed, output = self.validateGF('Trying to mounting %s' %(device), 
-                            ['--', '-mount', device, '/']) 
+                            ['--', '-mount-ro', device, '/']) 
                     if completed != True:
                         failed = True
                     else:
@@ -217,6 +244,8 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
     # Handles url's of the form:
     #   http://localhost/storage_acct_name/container_name/blobname?saskey
     def do_GET(self):
+        global totalCount
+        global successCount
         try:
             urlObj = urllib.parse.urlparse(self.path)
             urlSplit = urlObj.path.split('/')
@@ -229,6 +258,8 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
             container_blob_name = urlSplit[4] + '/' + urlSplit[5]
             storageUrl = urllib.parse.urlunparse(('https', storageAcctName + '.blob.core.windows.net', container_blob_name, '', urlObj.query, None))        
         
+            logging.info('#### Successful Requests Serviced: ' + str(successCount) + '/' + str(totalCount));
+            totalCount=totalCount+1
             logging.info('Processing operation id# ' + operationId)
             logging.info('URL: ' + self.path)
             self.send_response_only(100)
@@ -262,6 +293,7 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
                         break
                     self.wfile.write(buf)
             logging.info('Finished request processing')
+            successCount=successCount+1
         except (IndexError, FileNotFoundError) as ex:
             logging.exception('Caught IndexError or FileNotFound error')
             self.send_response(404, 'Not Found')

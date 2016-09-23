@@ -2,7 +2,7 @@
 # The libguestfs service provides a way to extract log files from a SAS uri of an
 # Azure blob as a zip archive.
  
-FROM ubuntu:14.04
+FROM ubuntu:16.04
 MAINTAINER Anand Ramakrishna <anandram@microsoft.com>
 
 # package dependencies
@@ -16,6 +16,7 @@ RUN apt-get update \
     flex \
     bison \
     linux-image-generic \
+    parted \
  && DEBIAN_FRONTEND=noninteractive apt-get build-dep -y \
     libguestfs \
     supermin
