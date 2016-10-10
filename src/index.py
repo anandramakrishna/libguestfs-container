@@ -9,24 +9,42 @@ import os
 import time
 import socketserver
 import logging
+import logging.handlers
 import io
 import threading
 import csv
 from threading import Thread
 from datetime import datetime
 
+"""
+Globals
+"""
 IP_ADDRESS = '127.0.0.1'
 PORT = 8081
 OUTPUTDIRNAME = '/output'
+LOG_FILE = "/var/log/azureDiskInspectorSvc.log"
 
 totalCount = 0
 successCount = 0
 
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(levelname)s: %(asctime)s: %(thread)d : %(message)s')
+"""
+Logger Initialization
+"""
+logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]: %(message)s")
+rootLogger = logging.getLogger()
+rootLogger.setLevel(logging.DEBUG)
 
-# Print iterations progress
+fileHandler = logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=(1048576*5), backupCount=7)
+fileHandler.setFormatter(logFormatter)
+rootLogger.addHandler(fileHandler)
 
+consoleHandler = logging.StreamHandler()
+consoleHandler.setFormatter(logFormatter)
+rootLogger.addHandler(consoleHandler)
+
+"""
+Helper to print progress
+"""
 
 def printProgress(iteration, total, prefix='',
                   suffix='', decimals=1, barLength=100):
@@ -64,22 +82,22 @@ class KeepAliveThread(Thread):
         self.doWork = True
         self.exit_flag = threading.Event()
         self.forThread = threadId
-        logging.info('Starting KeepAliveWorkerThread for thread ' +
-                     str(self.forThread) + '.')
+        rootLogger.info('Starting KeepAliveWorkerThread for thread [' +
+                     str(self.forThread) + '].')
 
     def run(self):
         while not self.exit_flag.wait(timeout=120):
             if self.doWork:
-                logging.info(
-                    'Sending CONTINUE response to keep thread ' + str(self.forThread) + ' alive.')
+                rootLogger.info(
+                    'Sending CONTINUE response to keep thread [' + str(self.forThread) + '] alive.')
                 self.httpRequestHandler.send_response_only(100)
                 self.httpRequestHandler.end_headers()
             else:
-                logging.info(
-                    'Exiting KeepAliveWorkerThread for thread' + str(self.forThread))
+                rootLogger.info(
+                    'Exiting KeepAliveWorkerThread for thread [' + str(self.forThread) + '].')
                 return
-        logging.info('Exiting KeepAliveWorkerThread for thread ' +
-                     str(self.forThread))
+        rootLogger.info('Exiting KeepAliveWorkerThread for thread [' +
+                     str(self.forThread) + '].')
 
     def complete(self):
         self.doWork = False
@@ -96,12 +114,12 @@ class GuestFishWrapper:
     def buildGFArgs(self, args):
         retArgs = ['/libguestfs/run', 'guestfish', '--remote']
         retArgs.extend(args)
-        logging.info(retArgs)
+        rootLogger.info(retArgs)
         return retArgs
 
     def callGF(self, echoStr, commands, continueOnError=False):
         try:
-            logging.info(echoStr)
+            rootLogger.info(echoStr)
 
             proc = subprocess.Popen(
                 self.buildGFArgs(commands),
@@ -111,15 +129,15 @@ class GuestFishWrapper:
                 universal_newlines=True)
             return proc.communicate()
         except subprocess.CalledProcessError as e:
-            logging.warning('Failed ' + echoStr)
+            rootLogger.warning('Failed ' + echoStr)
             if not continueOnError:
                 raise(e)
-            logging.info('Continuing...')
+            rootLogger.info('Continuing...')
 
     def validateGF(self, echoStr, commands, continueOnError=False):
         output, error = self.callGF(echoStr, commands, continueOnError)
-        logging.info('Output = %s', output)
-        logging.info('Error = %s', error)
+        rootLogger.info('Output = %s', output)
+        rootLogger.info('Error = %s', error)
 
         if (error.find('libguestfs: error') == -1 or
                 output.find('libguestfs:error') == -1):
@@ -127,7 +145,7 @@ class GuestFishWrapper:
         return False, output
 
     def execute(self, storageUrl, outputDirName, operationId):
-        logging.info(storageUrl)
+        rootLogger.info(storageUrl)
 
         timeStr = str(time.time())
         requestDir = outputDirName + os.sep + operationId
@@ -146,17 +164,17 @@ class GuestFishWrapper:
             args = [
                 '/libguestfs/run', 'guestfish', '--listen',
                 '-a', storageUrl, '--ro']
-            logging.info(args)
+            rootLogger.info(args)
 
             # Guestfish server mode returns a string of the form
             #   GUESTFISH_PID=pid; export GUESTFISH_PID
             # We need to parse this and extract out the GUESTFISH_PID
             # environment variable and inserting it into the subsequent env
-            logging.info('Calling guestfish')
+            rootLogger.info('Calling guestfish')
             self.environment = os.environ.copy()
             output = subprocess.check_output(
                 args, env=self.environment, universal_newlines=True)
-            logging.info(output)
+            rootLogger.info(output)
 
             try:
                 guestfishpid = int(output.split(';')[0].split('=')[1])
@@ -164,7 +182,7 @@ class GuestFishWrapper:
                 raise Exception('Cannot find GUESTFISH_PID')
 
             self.environment['GUESTFISH_PID'] = str(guestfishpid)
-            logging.info('GUESTFISH_PID = %d', guestfishpid)
+            rootLogger.info('GUESTFISH_PID = %d', guestfishpid)
 
             # Enumerate file systems
             # Then try mounting them and looking for logs
@@ -176,7 +194,7 @@ class GuestFishWrapper:
                 'Listing filesystems', ['list-filesystems'])
             operationOutFile.write(fsOutput)
             operationOutFile.write("\r\n")
-            logging.info(fsOutput)
+            rootLogger.info(fsOutput)
 
             operationOutFile.write("Inspection Status:\r\n")
             output, error = self.callGF('Inspecting', ['inspect-os'])
@@ -189,7 +207,7 @@ class GuestFishWrapper:
 
             for line in output.splitlines():
                 device = line
-                logging.info('Found device at path: %s', device)
+                rootLogger.info('Found device at path: %s', device)
 
                 operationOutFile.write("Inspecting ")
                 operationOutFile.write(device)
@@ -240,7 +258,7 @@ class GuestFishWrapper:
                     operationOutFile.write("\r\n")
                     # Couldn't mount this device, so just continue to next
                     # device
-                    logging.info('Could not mount device %s', device)
+                    rootLogger.info('Could not mount device %s', device)
                     continue
 
                 operationOutFile.write("Listing /var/log:\r\n")
@@ -261,7 +279,7 @@ class GuestFishWrapper:
                     failed = True
 
                 if failed:
-                    logging.info('/var/log does not exist on %s', device)
+                    rootLogger.info('/var/log does not exist on %s', device)
                     operationOutFile.write("n/a\r\n")
                     continue
 
@@ -302,7 +320,7 @@ class GuestFishWrapper:
             operationOutFile.write("Packaged files:\r\n")
             operationOutFile.write(output)
 
-        logging.info('Making archive')
+        rootLogger.info('Making archive')
         archiveName = shutil.make_archive(requestDir, 'zip', requestDir)
         shutil.rmtree(requestDir)
         return archiveName
@@ -334,22 +352,22 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
             storageUrl = urllib.parse.urlunparse(
                 ('https', storageAcctName + '.blob.core.windows.net', container_blob_name, '', urlObj.query, None))
 
-            logging.info('#### Successful Requests Serviced: ' +
+            rootLogger.info('#### Successful Requests Serviced: ' +
                          str(successCount) + '/' + str(totalCount))
             totalCount = totalCount + 1
-            logging.info('Request initiated from IP ' + self.client_address[0])
-            logging.info('Processing operation id# ' + operationId)
-            logging.info('URL: ' + self.path)
+            rootLogger.info('Request initiated from IP ' + self.client_address[0])
+            rootLogger.info('Processing operation id# ' + operationId)
+            rootLogger.info('URL: ' + self.path)
             self.send_response_only(100)
             self.end_headers()
 
             keepAliveWorkerThread = KeepAliveThread(
-                self, threading.current_thread().ident)
+                self, threading.current_thread().getName())
             keepAliveWorkerThread.start()
             gfWrapper = GuestFishWrapper(self)
             outputFileName = gfWrapper.execute(
                 storageUrl, OUTPUTDIRNAME, operationId)
-            logging.info('Guest zipped up ' + outputFileName)
+            rootLogger.info('Guest zipped up ' + outputFileName)
             keepAliveWorkerThread.complete()
             keepAliveWorkerThread.join()
 
@@ -366,13 +384,13 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
                     os.path.basename(outputFileName)), 'utf-8'))
             self.wfile.write(bytes('\r\n', 'utf-8'))
             self.wfile.flush()
-            logging.info('HTTP Headers done.')
+            rootLogger.info('HTTP Headers done.')
 
             outputFileSize = os.path.getsize(outputFileName)
             readSize = 0
             with open(outputFileName, 'rb') as outputFileObj:
                 buf = None
-                logging.info('Opened file for read')
+                rootLogger.info('Opened file for read')
                 while (True):
                     buf = outputFileObj.read(64 * 1024)
                     if (not buf):
@@ -381,16 +399,16 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
                     printProgress(
                         readSize, outputFileSize, prefix='Progress:', suffix='Complete', barLength=50)
                     self.wfile.write(buf)
-            logging.info('Finished request processing')
+            rootLogger.info('Finished request processing')
             successCount = successCount + 1
         except (IndexError, FileNotFoundError) as ex:
-            logging.exception('Caught IndexError or FileNotFound error')
+            rootLogger.exception('Caught IndexError or FileNotFound error')
             keepAliveWorkerThread.complete()
             keepAliveWorkerThread.join()
             self.send_response(404, 'Not Found')
             self.end_headers()
         except Exception as ex:
-            logging.exception('Caught exception' + str(ex))
+            rootLogger.exception('Caught exception' + str(ex))
             keepAliveWorkerThread.complete()
             keepAliveWorkerThread.join()
             self.send_response(500)
@@ -400,7 +418,7 @@ class GuestFishHttpHandler(http.server.BaseHTTPRequestHandler):
             if outputFileName:
                 os.remove(outputFileName)
                 elapsed = datetime.now() - start_time
-                logging.info('#### Completed request in ' +
+                rootLogger.info('#### Completed request in ' +
                              str(elapsed.total_seconds()) + "s.")
 
 
